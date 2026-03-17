@@ -159,7 +159,7 @@ Os resultados indicam que o sistema apresenta:
 * Estabilidade sob carga
 * Nenhuma perda de requisição
 
-O uso de mensageria contribuiu significativamente para esse desempenho, pois o backend apenas enfileira mensagens, evitando bloqueios relacionados à persistência.
+O uso de mensageria contribuiu significativamente para esse desempenho, pois o backend atua apenas como produtor de mensagens, delegando o processamento e a persistência ao middleware. Dessa forma, operações de I/O, como a escrita no banco de dados, não impactam diretamente o tempo de resposta da API.
 
 ## 9. Validação do Sistema
 
