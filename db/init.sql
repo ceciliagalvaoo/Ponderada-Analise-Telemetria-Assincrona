@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS telemetry (
+    id SERIAL PRIMARY KEY,
+    device_id VARCHAR(100) NOT NULL,
+    timestamp TIMESTAMP NOT NULL,
+    sensor_type VARCHAR(50) NOT NULL,
+    reading_type VARCHAR(20) NOT NULL,
+    value DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
