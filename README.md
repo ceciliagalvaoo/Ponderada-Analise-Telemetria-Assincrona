@@ -16,6 +16,7 @@ Os principais objetivos do projeto foram:
 * Validar a aplicação por meio de testes unitários
 * Avaliar o comportamento do sistema sob carga
 
+
 ## 3. Arquitetura do Sistema
 
 A arquitetura adotada segue o padrão de processamento assíncrono orientado a eventos.
@@ -67,7 +68,6 @@ O middleware mantém uma conexão ativa com o RabbitMQ e consome mensagens conti
 
 Após validação, o middleware executa um comando SQL de inserção na tabela `telemetry`, armazenando os dados de forma estruturada.
 
-
 ## 5. Modelagem do Banco de Dados
 
 A tabela utilizada para armazenamento foi definida da seguinte forma:
@@ -95,90 +95,190 @@ Os containers definidos foram:
 * rabbitmq
 * postgres
 
-Essa abordagem garante isolamento entre os serviços e facilidade de execução em diferentes ambientes.
+Essa abordagem garante:
 
-## 7. Testes Unitários
+* isolamento entre os serviços
+* reprodutibilidade do ambiente
+* facilidade de execução em diferentes máquinas
 
-### 7.1 Testes do Backend
+## 6.1 Decisão de Organização da Infraestrutura
 
-Para o backend, foi utilizada uma abordagem baseada em mocks para desacoplar a dependência do RabbitMQ.
+A organização dos arquivos de infraestrutura do projeto foi realizada de forma a manter proximidade com o componente responsável pelo processamento dos dados, neste caso, o middleware.
+
+Embora os serviços de RabbitMQ e PostgreSQL sejam definidos no `docker-compose.yml` como containers independentes, seus arquivos auxiliares (como scripts de inicialização e documentação) foram organizados em diretórios relacionados ao middleware.
+
+Essa decisão foi motivada pelos seguintes fatores:
+
+* O middleware é o principal consumidor das mensagens e responsável pela persistência dos dados
+* Tanto o RabbitMQ quanto o PostgreSQL são utilizados diretamente pelo middleware durante o processamento
+* A organização próxima ao middleware facilita a compreensão do fluxo de dados, especialmente em projetos de menor escala
+* Reduz a fragmentação do projeto, evitando a criação de múltiplos diretórios de infraestrutura sem necessidade
+
+É importante destacar que, do ponto de vista arquitetural, RabbitMQ e PostgreSQL continuam sendo serviços independentes, executados em containers próprios, garantindo isolamento e desacoplamento entre os componentes.
+
+Essa organização foi adotada visando simplicidade, clareza e facilidade de manutenção, sem comprometer os princípios da arquitetura distribuída.
+
+## 7. Como Executar o Projeto
+
+Para executar o sistema localmente, é necessário possuir o Docker instalado e em execução na máquina.
+
+### 7.1 Subindo o ambiente
+
+Na raiz do projeto, execute:
+
+```bash
+docker compose up --build
+```
+
+Esse comando irá:
+
+* Construir as imagens
+* Subir todos os containers
+* Inicializar o banco de dados
+* Iniciar backend e middleware
+
+### 7.2 Testando o endpoint manualmente
+
+Exemplo via PowerShell:
+
+```powershell
+$body = @{
+  device_id = "dev-001"
+  timestamp = "2026-03-17T15:00:00Z"
+  sensor_type = "temperature"
+  reading_type = "analog"
+  value = 26.7
+} | ConvertTo-Json
+
+Invoke-RestMethod -Uri "http://localhost:8080/telemetry" `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body $body
+```
+
+Resposta esperada:
+
+```text
+mensagem enfileirada com sucesso
+```
+
+### 7.3 Verificando a persistência no banco
+
+```bash
+docker exec -it db psql -U postgres -d telemetrydb
+```
+
+```sql
+SELECT * FROM telemetry;
+```
+
+### 7.4 Executando os testes unitários
+
+#### Backend
+
+```bash
+cd back
+go test
+```
+
+#### Middleware
+
+```bash
+cd middleware
+go test
+```
+
+### 7.5 Executando o teste de carga
+
+```bash
+k6 run test-load/telemetry.js
+```
+
+### 7.6 Encerrando o ambiente
+
+```bash
+docker compose down
+```
+
+Reset completo:
+
+```bash
+docker compose down -v
+```
+
+## 8. Testes Unitários
+
+### 8.1 Testes do Backend
+
+Foi utilizada uma abordagem baseada em mocks para desacoplar a dependência do RabbitMQ.
 
 Foi criada uma interface de publicação (`Publisher`), permitindo a substituição por uma implementação mock durante os testes.
 
-Os seguintes cenários foram testados:
+Cenários testados:
 
-* Requisição válida: valida se o endpoint retorna status HTTP 202
-* JSON inválido: valida retorno de erro HTTP 400
-* Método inválido: valida retorno de erro HTTP 405
+* Requisição válida (HTTP 202)
+* JSON inválido (HTTP 400)
+* Método inválido (HTTP 405)
 
-Esses testes garantem que a API responde corretamente a diferentes tipos de entrada, além de validar o comportamento esperado do endpoint.
+### 8.2 Testes do Middleware
 
-### 7.2 Testes do Middleware
+A lógica de processamento foi isolada, permitindo testes independentes da infraestrutura.
 
-Para possibilitar testes unitários no middleware, a lógica de processamento foi isolada em uma função específica responsável por tratar cada mensagem recebida.
+Cenários testados:
 
-Foi criada uma interface para o repositório de banco de dados, permitindo a utilização de um mock durante os testes.
+* Mensagem válida
+* JSON inválido
+* Timestamp inválido
+* Erro no banco
 
-Os cenários testados foram:
+## 9. Teste de Carga
 
-* Mensagem válida: valida se os dados são corretamente processados e enviados ao repositório
-* JSON inválido: garante que erros de parsing são tratados corretamente
-* Timestamp inválido: valida o tratamento de erro na conversão de data
-* Erro no banco: simula falha na persistência e valida o comportamento do sistema
+### 9.1 Configuração
 
-Essa abordagem permite testar a lógica de negócio sem depender de RabbitMQ ou PostgreSQL reais.
-
-## 8. Teste de Carga
-
-O teste de carga foi realizado utilizando a ferramenta k6, com o objetivo de avaliar o comportamento do sistema sob múltiplas requisições simultâneas.
-
-### 8.1 Configuração do teste
-
-* Usuários virtuais (VUs): até 30 simultâneos
+* Até 30 usuários simultâneos
 * Duração: 40 segundos
-* Tipo de requisição: POST para `/telemetry`
+* Endpoint: `/telemetry`
 
-### 8.2 Resultados obtidos
+### 9.2 Resultados
 
 * Total de requisições: 605
 * Taxa de sucesso: 100%
 * Falhas: 0%
 
-### 8.3 Métricas de desempenho
+### 9.3 Métricas
 
 * Latência média: 3.01 ms
-* Percentil 95 (p95): 5.96 ms
+* p95: 5.96 ms
 * Latência máxima: 10.54 ms
 
-### 8.4 Análise dos resultados
+### 9.4 Análise
 
-Os resultados indicam que o sistema apresenta:
+Os resultados demonstram que o sistema apresenta:
 
 * Alta capacidade de resposta
 * Baixa latência
 * Estabilidade sob carga
 * Nenhuma perda de requisição
 
-O uso de mensageria contribuiu significativamente para esse desempenho, pois o backend atua apenas como produtor de mensagens, delegando o processamento e a persistência ao middleware. Dessa forma, operações de I/O, como a escrita no banco de dados, não impactam diretamente o tempo de resposta da API.
+O uso de mensageria contribuiu significativamente para esse desempenho, pois o backend atua apenas como produtor de mensagens, delegando o processamento e a persistência ao middleware. Dessa forma, operações de I/O não impactam diretamente o tempo de resposta da API.
 
-## 9. Validação do Sistema
+## 10. Validação do Sistema
 
-A validação do sistema foi realizada por meio de múltiplas estratégias:
+A validação foi realizada por meio de:
 
-* Verificação do estado dos containers com `docker ps`
-* Análise dos logs dos serviços
-* Execução de requisições manuais via API
-* Consulta direta ao banco de dados
-* Execução de testes automatizados (unitários e de carga)
+* Verificação com `docker ps`
+* Análise de logs
+* Testes manuais via API
+* Consulta ao banco
+* Testes unitários
+* Teste de carga
 
-Essa abordagem garantiu que todo o pipeline estava funcionando corretamente de ponta a ponta.
+Isso garantiu o funcionamento completo do pipeline de ponta a ponta.
 
-## 10. Conclusão
+## 11. Conclusão
 
-O sistema desenvolvido demonstra uma arquitetura moderna baseada em comunicação assíncrona, capaz de lidar com múltiplas requisições de forma eficiente e escalável.
+O sistema desenvolvido demonstra, na prática, a aplicação de uma arquitetura assíncrona baseada em mensageria para o processamento eficiente de dados de telemetria. A separação entre ingestão e processamento permitiu reduzir o acoplamento entre os componentes, garantindo maior resiliência e capacidade de resposta mesmo sob cenários de carga concorrente. Os testes unitários realizados no backend e no middleware apresentaram sucesso em todos os cenários avaliados, validando a corretude das regras de negócio e o tratamento adequado de erros. Adicionalmente, o teste de carga evidenciou o bom desempenho da aplicação, com 605 requisições processadas, 100% de taxa de sucesso e latência média de aproximadamente 3 ms, mantendo estabilidade ao longo da execução. Esses resultados confirmam que a solução atende aos objetivos propostos, apresentando comportamento consistente, baixo tempo de resposta e capacidade de escalabilidade, sendo adequada para cenários reais de monitoramento com alto volume de dados.
 
-A separação entre ingestão e processamento permite maior flexibilidade e resiliência, enquanto a utilização de testes unitários e de carga assegura a qualidade e confiabilidade da solução.
 
-Os resultados obtidos indicam que o sistema atende plenamente aos objetivos propostos, apresentando desempenho consistente e comportamento estável.
 
 

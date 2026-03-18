@@ -14,7 +14,7 @@ func (m *MockPublisher) Publish(body []byte) error {
 	return nil
 }
 
-// ✅ teste de sucesso
+// teste de sucesso
 func TestTelemetryHandler_Success(t *testing.T) {
 	mockPub := &MockPublisher{}
 
@@ -37,7 +37,7 @@ func TestTelemetryHandler_Success(t *testing.T) {
 	}
 }
 
-// ❌ teste de JSON inválido
+// teste de JSON inválido
 func TestTelemetryHandler_InvalidJSON(t *testing.T) {
 	mockPub := &MockPublisher{}
 
@@ -52,7 +52,7 @@ func TestTelemetryHandler_InvalidJSON(t *testing.T) {
 	}
 }
 
-// ❌ teste de método inválido
+// teste de método inválido
 func TestTelemetryHandler_MethodNotAllowed(t *testing.T) {
 	mockPub := &MockPublisher{}
 
