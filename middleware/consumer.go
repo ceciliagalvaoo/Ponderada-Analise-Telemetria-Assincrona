@@ -34,7 +34,7 @@ func consumeMessages(repo DBInserter) {
 	msgs, err := ch.Consume(
 		q.Name,
 		"",
-		true,
+		false,
 		false,
 		false,
 		false,
@@ -49,6 +49,14 @@ func consumeMessages(repo DBInserter) {
 	for msg := range msgs {
 		if err := processMessage(repo, msg.Body); err != nil {
 			log.Println("erro ao processar mensagem:", err)
+			if nackErr := msg.Nack(false, true); nackErr != nil {
+				log.Println("erro ao reenfileirar mensagem:", nackErr)
+			}
+			continue
+		}
+
+		if ackErr := msg.Ack(false); ackErr != nil {
+			log.Println("erro ao confirmar mensagem:", ackErr)
 			continue
 		}
 
