@@ -2,7 +2,7 @@
 
 ## Sistema de Processamento de Telemetria com Arquitetura Assíncrona
 
-> **Vídeo da solução em funcionamento:** [clique aqui](https://drive.google.com/file/d/1tpfwycrPaJEr4vOBoWRJKTNbINeD3Jbh/view?usp=sharing)
+> **Vídeo da solução em funcionamento:** [clique aqui](https://drive.google.com/file/d/1uArArnO_worznHrNW3EcYiT0d8e3jvqY/view?usp=sharing)
 
 **Stack utilizada:** Go, RabbitMQ, PostgreSQL, Docker Compose e k6
 
