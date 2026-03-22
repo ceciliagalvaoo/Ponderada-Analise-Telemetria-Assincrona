@@ -1,149 +1,104 @@
-# Sistema de Processamento de Telemetria com Arquitetura Assincrona
+# Relatório Técnico
 
-> **Link do vídeo da solução em funcionamento:** [clique aqui](https://drive.google.com/file/d/1tpfwycrPaJEr4vOBoWRJKTNbINeD3Jbh/view?usp=sharing)
+## Sistema de Processamento de Telemetria com Arquitetura Assíncrona
+
+> **Vídeo da solução em funcionamento:** [clique aqui](https://drive.google.com/file/d/1tpfwycrPaJEr4vOBoWRJKTNbINeD3Jbh/view?usp=sharing)
+
+**Stack utilizada:** Go, RabbitMQ, PostgreSQL, Docker Compose e k6
 
 ## 1. Contexto e Objetivo
 
-Este projeto implementa um backend para ingestao de telemetria de dispositivos embarcados, com foco em escalabilidade, resiliencia e desacoplamento entre recepcao e persistencia.
+Este projeto implementa um sistema de ingestão de telemetria para dispositivos embarcados, com foco em escalabilidade, resiliência e separação clara de responsabilidades entre recepção, transporte e persistência dos dados. A necessidade central da arquitetura era permitir que a API HTTP recebesse dados com baixa latência, mesmo em cenários com aumento de carga, sem depender diretamente da velocidade de escrita no banco de dados.
 
-Arquitetura adotada:
+Para atender esse objetivo, a solução foi estruturada como uma pipeline assíncrona. O backend atua como porta de entrada, validando os dados recebidos e publicando as mensagens em uma fila RabbitMQ. Em seguida, um serviço separado, chamado `middleware`, consome essas mensagens e realiza a persistência no PostgreSQL. Com isso, o caminho síncrono da requisição fica mais leve e a responsabilidade de gravação é deslocada para um fluxo desacoplado.
 
-Cliente -> Backend (HTTP) -> RabbitMQ -> Middleware (consumidor) -> PostgreSQL
+O fluxo principal do sistema pode ser resumido da seguinte forma:
 
-Stack utilizada:
+```text
+Cliente -> Backend HTTP -> RabbitMQ -> Middleware -> PostgreSQL
+```
 
-- Go
-- RabbitMQ
-- PostgreSQL
-- Docker / Docker Compose
-- k6
+Essa abordagem traz três ganhos principais. O primeiro é a redução da latência percebida pelo cliente, já que a API não precisa aguardar a gravação no banco para responder. O segundo é a maior resiliência em momentos de pico, pois a fila passa a funcionar como buffer entre a entrada e o processamento. O terceiro é a evolução mais simples da arquitetura, uma vez que cada componente possui uma responsabilidade mais bem definida.
 
 ## 2. Requisitos Atendidos
 
-- Endpoint HTTP POST para recebimento de telemetria: atendido em `/telemetry`
-- Desacoplamento com mensageria: atendido com `telemetry_queue`
-- Processamento assincrono: atendido via middleware consumidor
-- Persistencia relacional: atendido com PostgreSQL
-- Conteinerizacao da infraestrutura: atendido com Docker Compose
-- Testes de carga: atendido com k6 e export de sumario em JSON
+Os requisitos propostos pela atividade foram atendidos de forma completa. O endpoint HTTP `POST /telemetry` foi implementado no serviço `back`, que recebe a telemetria, valida o payload e publica a mensagem na fila. O desacoplamento entre recepção e persistência foi garantido com o uso da fila `telemetry_queue`, tornando o processamento assíncrono e mais robusto frente a picos de carga.
 
-## 3. Arquitetura do Sistema 
+O consumo das mensagens é realizado por um serviço dedicado, o `middleware`, que lê os eventos da fila e persiste os dados no PostgreSQL. Toda a infraestrutura foi conteinerizada com Docker Compose, o que permite reprodução simples do ambiente e isolamento entre os componentes. Além disso, a validação de desempenho foi complementada com testes de carga em k6, incluindo exportação dos resultados em JSON para rastreabilidade e análise posterior.
 
-### 3.1 Topologia de implantacao
+| Requisito | Atendimento no projeto |
+| --- | --- |
+| Endpoint HTTP `POST /telemetry` | Implementado no serviço `back` |
+| Desacoplamento com mensageria | Realizado com a fila `telemetry_queue` |
+| Processamento assíncrono | Executado pelo serviço `middleware` |
+| Persistência relacional | Realizada no PostgreSQL |
+| Conteinerização | Estruturada com Docker Compose |
+| Teste de carga com exportação de resultados | Executado com k6 e `summary.json` |
 
-A arquitetura foi montada em quatro servicos executados por Docker Compose, todos na mesma rede virtual (`app-network`):
+## 3. Arquitetura do Sistema
 
-- `back`: API HTTP (porta 8080 exposta para host)
-- `rabbitmq`: broker AMQP (porta 5672) e painel de gerenciamento (porta 15672)
-- `middleware`: consumidor da fila e persistencia
-- `db`: PostgreSQL (porta 5432)
+### 3.1 Topologia de implantação
 
-Com essa topologia:
+O sistema foi organizado em quatro serviços principais executados na mesma rede virtual do Docker Compose:
 
-- o cliente acessa apenas o `back` via `localhost:8080`
-- `back` publica no `rabbitmq` usando DNS interno do Compose (`rabbitmq`)
-- `middleware` consome do `rabbitmq` e grava no `db` via DNS interno (`db`)
+| Serviço | Exposição | Papel no sistema |
+| --- | --- | --- |
+| `back` | `8080` | API HTTP, validação e publicação na fila |
+| `rabbitmq` | `5672` e `15672` | Broker AMQP e painel de gerenciamento |
+| `middleware` | Interno | Consumo da fila e persistência |
+| `db` | `5432` | Banco de dados PostgreSQL |
 
-Essa montagem isola responsabilidades e permite evoluir cada servico de forma independente.
+Na prática, o cliente externo interage apenas com a API HTTP. A partir desse ponto, toda a comunicação entre os serviços ocorre por DNS interno do Compose. Isso significa que o backend publica mensagens usando o hostname `rabbitmq`, enquanto o middleware persiste os dados no banco usando o hostname `db`. Essa estratégia simplifica a configuração e reforça o isolamento entre os componentes.
 
-### 3.2 Fluxo arquitetural de ponta a ponta
+### 3.2 Fluxo de execução ponta a ponta
 
-O caminho da telemetria foi estruturado em duas etapas:
+O fluxo de dados foi dividido em duas etapas complementares: uma etapa síncrona, voltada para a recepção e validação da telemetria, e uma etapa assíncrona, voltada para o processamento efetivo e a persistência.
 
-- etapa sincrona: recepcao HTTP e validacao no `back`
-- etapa assincrona: enfileiramento, consumo e persistencia no `middleware`
+Na etapa síncrona:
 
-Isso evita que a API fique bloqueada por operacoes de banco durante picos de requisicoes.
+- o cliente envia uma requisição `POST /telemetry` com o payload da leitura
+- o backend verifica se o método HTTP está correto
+- o JSON recebido é desserializado e validado
+- a estrutura é serializada novamente para publicação na fila
+- a API devolve ao cliente a confirmação de enfileiramento
 
-### 3.3 Backend sem persistencia direta
+Na etapa assíncrona:
 
-O backend recebe, valida e publica mensagens na fila sem escrever no banco.
+- o RabbitMQ atua como buffer entre entrada e processamento
+- o `middleware` consome continuamente a `telemetry_queue`
+- a mensagem é interpretada e convertida para persistência
+- a leitura é gravada no PostgreSQL
+- o consumidor envia `ACK` somente após a persistência
+- em caso de falha, a mensagem recebe `NACK` com `requeue`
 
-Justificativa:
+Essa separação é importante porque evita que a API fique bloqueada por operações de I/O de banco de dados durante o atendimento da requisição. Em outras palavras, o endpoint permanece responsivo mesmo quando a etapa de persistência é mais lenta ou está sob maior pressão.
 
-- Reduz latencia da API
-- Evita acoplamento com I/O pesado no caminho sincrono
-- Permite absorver picos de carga com o broker
+### 3.3 Principais decisões arquiteturais
 
-### 3.4 RabbitMQ como buffer de resiliencia
+Uma decisão central do projeto foi impedir que o backend escrevesse diretamente no banco. Essa escolha reduz o acoplamento entre API e persistência e preserva a responsividade do endpoint. Em vez de transformar o backend em um componente que faz tudo ao mesmo tempo, ele foi mantido enxuto: validar, serializar e publicar.
 
-A fila foi configurada como duravel e as mensagens sao publicadas como persistentes.
+Outra decisão relevante foi o uso de fila durável e publicação de mensagens persistentes. Isso reduz o risco de perda de dados em reinícios do broker e fortalece o comportamento do sistema em cenários mais próximos de uso real.
 
-Justificativa:
+O uso de `ACK` manual também foi uma escolha deliberada. Confirmar a mensagem apenas depois da persistência em banco evita o problema clássico de reconhecer cedo demais uma mensagem que ainda não foi efetivamente processada. Embora esse desenho não elimine todos os desafios de sistemas distribuídos, ele melhora bastante a confiabilidade do fluxo atual.
 
-- Menor risco de perda em reinicio do broker
-- Suporte a bursts sem bloquear o endpoint
+Por fim, a validação precoce no backend reduz a chance de dados inconsistentes chegarem ao broker e ao banco. Isso melhora a qualidade dos dados armazenados e também evita desperdício de processamento assíncrono com mensagens sabidamente inválidas.
 
-### 3.5 Consumo com ACK manual
+## 4. Validações do Payload
 
-O middleware confirma a mensagem apenas apos persistencia no banco.
-Em caso de erro, aplica NACK com requeue.
+Antes de publicar qualquer mensagem na fila, o backend aplica um conjunto de validações para garantir consistência mínima dos dados recebidos. O método HTTP deve ser compatível com a operação esperada, o corpo precisa conter JSON válido e os campos essenciais devem estar presentes.
 
-Justificativa:
+Os principais campos validados são:
 
-- Evita perda de mensagem por ack antecipado
-- Mantem semantica de entrega mais confiavel no fluxo atual
+- `device_id`, obrigatório para identificar a origem da leitura
+- `timestamp`, obrigatório e esperado em formato RFC3339
+- `sensor_type`, obrigatório para caracterizar o tipo de sensor
+- `reading_type`, restrito aos valores `analog` ou `discrete`
 
-### 3.6 Validacoes no payload
-
-O backend valida:
-
-- Metodo HTTP
-- JSON valido
-- `device_id` obrigatorio
-- `timestamp` em RFC3339
-- `sensor_type` obrigatorio
-- `reading_type` em `analog` ou `discrete`
-
-Justificativa:
-
-- Rejeita entrada invalida cedo
-- Evita enfileirar dados inconsistentes
-
-### 3.7 Organizacao da infraestrutura
-
-A organizacao dos arquivos de infraestrutura do projeto foi realizada de forma a manter proximidade com o componente responsavel pelo processamento dos dados, neste caso, o middleware.
-
-Embora os servicos de RabbitMQ e PostgreSQL sejam definidos no `docker-compose.yml` como containers independentes, seus arquivos auxiliares (como scripts de inicializacao e documentacao) foram organizados em diretorios relacionados ao fluxo principal da aplicacao.
-
-Essa decisao foi motivada pelos seguintes fatores:
-
-- O middleware e o principal consumidor das mensagens e responsavel pela persistencia dos dados.
-- Tanto o RabbitMQ quanto o PostgreSQL sao utilizados diretamente pelo middleware durante o processamento.
-- A organizacao proxima ao middleware facilita a compreensao do fluxo de dados, especialmente em projetos de menor escala.
-- Reduz a fragmentacao do projeto, evitando a criacao de multiplos diretorios de infraestrutura sem necessidade.
-
-E importante destacar que, do ponto de vista arquitetural, RabbitMQ e PostgreSQL continuam sendo servicos independentes, executados em containers proprios, garantindo isolamento e desacoplamento entre os componentes.
-
-## 4. Fluxo de Execucao do Sistema
-
-### 4.1 Recepcao da requisicao
-
-O cliente envia `POST /telemetry` com `device_id`, `timestamp`, `sensor_type`, `reading_type` e `value`.
-
-### 4.2 Processamento no backend
-
-Ao receber a requisicao, o backend:
-
-- valida metodo HTTP
-- desserializa JSON
-- valida campos obrigatorios e formato
-- serializa payload
-- publica mensagem na fila
-
-O backend nao grava em banco nesse momento, mantendo o caminho de resposta leve.
-
-### 4.3 Enfileiramento e consumo
-
-O RabbitMQ atua como buffer entre ingestao e persistencia. O middleware consome continuamente a fila e executa o processamento.
-
-### 4.4 Persistencia e confirmacao
-
-O middleware grava no PostgreSQL e so depois confirma a mensagem (ACK). Em falha de processamento/persistencia, aplica NACK com requeue para nova tentativa.
+Essa validação na borda do sistema é importante por dois motivos. Primeiro, impede que mensagens estruturalmente inválidas sejam propagadas para a fila. Segundo, simplifica a responsabilidade do consumidor, que passa a lidar majoritariamente com mensagens já filtradas pelo backend.
 
 ## 5. Modelo de Dados
 
-Tabela principal:
+Os dados persistidos são armazenados na tabela `telemetry`, definida da seguinte forma:
 
 ```sql
 CREATE TABLE IF NOT EXISTS telemetry (
@@ -157,43 +112,52 @@ CREATE TABLE IF NOT EXISTS telemetry (
 );
 ```
 
-Observacao:
+O modelo foi pensado para armazenar cada leitura de forma simples e objetiva. O campo `device_id` identifica o dispositivo que originou o dado, enquanto `timestamp` registra o instante associado à leitura. Os campos `sensor_type` e `reading_type` ajudam a interpretar semanticamente o evento, e o campo `value` representa o valor medido.
 
-- O campo `value` esta modelado como numerico continuo.
-- Leituras discretas podem ser representadas por convencao numerica (ex.: 0/1).
-- Uma extensao futura recomendada e separar valor analogico de valor discreto no esquema.
+Do ponto de vista de modelagem, essa estrutura atende bem ao escopo atual do projeto, especialmente para sensores analógicos. Para leituras discretas, a representação numérica por convenção, como `0` e `1`, é suficiente neste contexto. Ainda assim, uma melhoria arquitetural futura seria separar explicitamente os valores analógicos e discretos em colunas diferentes, tornando o esquema mais expressivo e reduzindo ambiguidades de interpretação.
+
+Os campos possuem os seguintes papéis:
+
+- `id`: identificador único de cada leitura persistida
+- `device_id`: identificação do dispositivo emissor
+- `timestamp`: instante associado ao evento recebido
+- `sensor_type`: categoria do sensor, como temperatura ou pressão
+- `reading_type`: natureza da leitura, analógica ou discreta
+- `value`: valor numérico armazenado
+- `created_at`: momento em que o registro foi inserido no banco
 
 ## 6. Como Executar
 
-Pre-requisitos:
+### 6.1 Pré-requisitos
 
-- Docker Desktop em execucao
+Para executar o projeto, é necessário ter:
+
+- Docker Desktop em execução
 - Docker Compose habilitado
-- k6 instalado (para teste de carga)
+- k6 instalado, caso o objetivo seja reproduzir os testes de carga
 
-### 6.1 Subir ambiente
+### 6.2 Subir o ambiente
+
+Com os pré-requisitos atendidos, o ambiente pode ser iniciado com:
 
 ```bash
 docker compose up --build -d
 docker compose ps
 ```
 
-Servicos esperados:
+A expectativa é que os serviços `back`, `middleware`, `rabbitmq` e `db` estejam em execução após a inicialização.
 
-- `back`
-- `middleware`
-- `rabbitmq`
-- `db`
+### 6.3 Testar o endpoint manualmente
 
-### 6.2 Testar endpoint manualmente
+Uma forma simples de validar o fluxo é enviar uma leitura manualmente para a API:
 
 ```powershell
 $body = @{
-  device_id = "dev-001"
-  timestamp = "2026-03-17T15:00:00Z"
-  sensor_type = "temperature"
+  device_id    = "dev-001"
+  timestamp    = "2026-03-17T15:00:00Z"
+  sensor_type  = "temperature"
   reading_type = "analog"
-  value = 26.7
+  value        = 26.7
 } | ConvertTo-Json
 
 Invoke-RestMethod -Uri "http://localhost:8080/telemetry" `
@@ -202,19 +166,23 @@ Invoke-RestMethod -Uri "http://localhost:8080/telemetry" `
   -Body $body
 ```
 
-Resposta esperada:
+Se o fluxo estiver correto, a resposta esperada será:
 
 ```text
 mensagem enfileirada com sucesso
 ```
 
-### 6.3 Validar persistencia
+### 6.4 Validar persistência
+
+Depois de publicar a mensagem, a persistência pode ser confirmada diretamente no banco:
 
 ```bash
 docker exec db psql -U postgres -d telemetrydb -c "SELECT * FROM telemetry ORDER BY id DESC LIMIT 5;"
 ```
 
-### 6.4 Executar testes unitarios
+### 6.5 Executar testes unitários
+
+Os testes unitários podem ser executados separadamente para backend e middleware:
 
 ```bash
 cd back
@@ -223,132 +191,131 @@ cd ../middleware
 go test
 ```
 
-### 6.5 Executar teste de carga
+### 6.6 Executar teste de carga
+
+O cenário de carga pode ser executado com:
 
 ```bash
 k6 run --summary-export test-load/reports/summary.json test-load/telemetry.js
 ```
 
-Opcional:
+Caso seja necessário registrar também a saída textual, o comando abaixo gera o arquivo de log:
 
 ```bash
 k6 run --summary-export test-load/reports/summary.json test-load/telemetry.js > test-load/reports/run.log
 ```
 
-### 6.6 Encerrar ambiente
+### 6.7 Encerrar o ambiente
+
+Para interromper os containers:
 
 ```bash
 docker compose down
 ```
 
-Reset completo:
+Para remover também os volumes e realizar um reset completo:
 
 ```bash
 docker compose down -v
 ```
 
-## 7. Validacao Container a Container
+## 7. Validação do Sistema
 
-Checklist pratico usado na validacao:
+A validação prática do ambiente foi conduzida com uma combinação de verificações operacionais e funcionais. Primeiro, `docker compose ps` foi utilizado para confirmar que os quatro serviços estavam ativos. Em seguida, o endpoint `/telemetry` foi acionado manualmente para garantir o recebimento da requisição pelo backend.
 
-- `docker compose ps` confirma os 4 servicos ativos
-- `back` responde no endpoint `/telemetry`
-- `rabbitmqctl list_queues` mostra fila existente
-- `middleware` registra mensagens persistidas com sucesso
-- consulta SQL confirma gravacao da telemetria
+Depois disso, a confirmação do fluxo interno foi feita observando a fila no RabbitMQ, os logs do middleware e a presença dos registros no PostgreSQL. Esse conjunto de evidências mostrou que a mensagem percorre corretamente todas as etapas do pipeline, desde a entrada HTTP até a persistência final.
 
-Resultado da validacao:
+Em termos de resultado, o comportamento observado confirma que o fluxo ponta a ponta está operacional: o `back` recebe a telemetria, o RabbitMQ desacopla as etapas, o `middleware` consome a mensagem e o PostgreSQL armazena o dado com sucesso.
 
-- Fluxo ponta a ponta confirmado: back -> RabbitMQ -> middleware -> PostgreSQL
+Checklist de validação utilizado:
 
-## 8. Testes Unitarios
+- verificar os containers com `docker compose ps`
+- enviar uma requisição manual para `/telemetry`
+- observar a fila no RabbitMQ
+- acompanhar os logs do `middleware`
+- consultar os registros persistidos no PostgreSQL
 
-Backend:
+## 8. Testes Unitários
 
-- requisicao valida retorna HTTP 202
-- JSON invalido retorna HTTP 400
-- metodo invalido retorna HTTP 405
-- timestamp invalido retorna HTTP 400
-- `reading_type` invalido retorna HTTP 400
+Os testes unitários foram distribuídos entre os dois principais componentes de aplicação.
 
-Middleware:
+No backend, os cenários exercitados cobrem tanto o caminho feliz quanto falhas de validação:
 
-- mensagem valida persiste no banco
-- JSON invalido falha no parse
-- timestamp invalido falha na conversao
-- erro de banco propaga corretamente
+- aceitação de requisições válidas com retorno HTTP `202`
+- rejeição de JSON inválido com HTTP `400`
+- bloqueio de métodos HTTP indevidos com HTTP `405`
+- identificação de `timestamp` inválido
+- validação restritiva do campo `reading_type`
 
-## 9. Teste de Carga (k6)
+No middleware, os testes verificam o comportamento do consumidor diante de diferentes tipos de mensagem e falha:
 
-### 9.1 Configuracao
+- mensagem válida com persistência bem-sucedida
+- erros de parse de JSON
+- falhas na conversão de `timestamp`
+- propagação correta de falhas de banco
 
-- Script: `test-load/telemetry.js`
-- Cenario: 3 estagios
-- Duracao total ativa: 40s
-- Pico: 30 usuarios virtuais
-- Endpoint: `POST /telemetry`
+Esses testes são importantes porque cobrem a etapa que, do ponto de vista arquitetural, concentra a confiabilidade do processamento assíncrono.
 
-### 9.2 Resultados mais recentes
+## 9. Teste de Carga com k6
 
-Fonte: `test-load/reports/summary.json`
+### 9.1 Configuração do cenário
 
-- total de requisicoes: 605
-- checks aprovados: 605/605 (100%)
-- falhas HTTP: 0%
-- throughput: 15.02 req/s
-- latencia media: 3.76 ms
-- p90: 5.55 ms
-- p95: 7.49 ms
-- latencia maxima: 66.95 ms
+O teste de carga foi executado a partir do script `test-load/telemetry.js`, com três estágios progressivos e duração total ativa de 40 segundos. O pico do cenário chegou a 30 usuários virtuais simultâneos, todos exercitando o endpoint `POST /telemetry`.
 
-### 9.3 Analise tecnica
+Esse desenho foi suficiente para avaliar o comportamento da API em um contexto local conteinerizado, observando tanto estabilidade de resposta quanto a capacidade de absorver requisições consecutivas sem erro.
 
-- O endpoint manteve estabilidade sem erros durante o cenario proposto.
-- A latencia media e baixa para o volume aplicado.
-- Picos maximos pontuais sao esperados em sistema conteinerizado local, devido a agendamento de CPU e sincronizacao de I/O.
-- A arquitetura assincrona reduz risco de degradacao da API sob carga, deslocando o custo de persistencia para o consumidor.
+### 9.2 Resultados obtidos
 
-### 9.4 Evidencias no Repositorio
+Com base no arquivo `test-load/reports/summary.json`, os resultados mais recentes foram:
 
-Arquivos de evidencia:
+| Métrica | Resultado |
+| --- | --- |
+| Requisições realizadas | 605 |
+| Checks aprovados | 605 |
+| Taxa de sucesso | 100% |
+| Falhas HTTP | 0% |
+| Throughput | 15.02 req/s |
+| Latência média | 3.09 ms |
+| Mediana | 2.37 ms |
+| p90 | 4.99 ms |
+| p95 | 6.28 ms |
+| Latência máxima | 121.10 ms |
+
+### 9.3 Análise técnica dos resultados
+
+Os resultados indicam que o endpoint permaneceu estável ao longo de todo o cenário executado. A ausência de falhas HTTP e de checks quebrados mostra que o sistema conseguiu manter consistência funcional mesmo sob carga concorrente.
+
+Do ponto de vista de desempenho, a latência média de 3.09 ms é baixa para o ambiente adotado, o que sugere que o caminho síncrono da API está enxuto e bem alinhado com a proposta arquitetural. A mediana também se manteve reduzida, indicando comportamento consistente na maior parte das requisições.
+
+O valor máximo de latência, de 121.10 ms, precisa ser interpretado com cuidado. Em ambiente local conteinerizado, picos pontuais como esse podem ocorrer por disputa de CPU, sincronização de I/O, aquecimento de processo e variações naturais do host. Como esses picos não vieram acompanhados de falhas ou degradação geral das métricas, a leitura mais razoável é que se tratam de outliers operacionais, e não de um gargalo sistêmico do endpoint.
+
+Mais importante do que o pico isolado é o comportamento agregado: a API manteve taxa de sucesso total enquanto a persistência permaneceu desacoplada da resposta ao cliente. Isso reforça que a decisão de usar mensageria entre backend e banco foi tecnicamente acertada para o escopo da solução.
+
+### 9.4 Evidências no repositório
+
+As evidências relacionadas ao teste de carga podem ser consultadas nos seguintes arquivos:
 
 - `test-load/reports/summary.json`
+- `test-load/reports/run.log`
 - `test-load/reports/README.md`
-- opcional: `test-load/reports/run.log`
 
-## 10. Validacao do Sistema
+## 10. Melhorias Futuras
 
-A validacao pratica do ambiente foi realizada com:
+O projeto já atende bem ao objetivo da atividade, mas há um conjunto claro de melhorias que aumentariam sua maturidade técnica.
 
-- verificacao de containers ativos (`docker compose ps`)
-- teste manual do endpoint `/telemetry`
-- analise de fila no RabbitMQ
-- observacao de logs do middleware
-- consulta SQL de confirmacao no PostgreSQL
-- testes unitarios de backend e middleware
-- teste de carga com k6
+- adicionar `healthcheck` e `depends_on.condition: service_healthy` para reduzir falhas de inicialização entre serviços
+- implementar retry com backoff exponencial nas conexões com RabbitMQ e PostgreSQL
+- criar uma dead-letter queue para separar mensagens com erro permanente
+- incluir autenticação e autorização no endpoint de ingestão
+- adicionar observabilidade com métricas, tracing e dashboards
+- separar leituras analógicas e discretas de forma mais explícita no schema
+- ampliar a cobertura com testes de integração fim a fim
+- versionar contratos de payload para evoluir o protocolo com mais segurança
 
-Esse conjunto de evidencias confirma o funcionamento ponta a ponta do pipeline.
+## 11. Conclusão
 
-## 11. Melhorias Futuras
+O sistema desenvolvido atende ao objetivo proposto ao implementar uma pipeline assíncrona e desacoplada para processamento de telemetria. A combinação entre backend HTTP, RabbitMQ, middleware consumidor e PostgreSQL forma uma arquitetura coerente com os requisitos de escalabilidade básica, resiliência e organização de responsabilidades.
 
-- Adicionar `healthcheck` e `depends_on.condition: service_healthy` no Compose para reduzir falhas de startup.
-- Implementar retry com backoff exponencial em conexao com RabbitMQ e PostgreSQL.
-- Criar dead-letter queue e politica de reprocessamento para erros permanentes.
-- Evoluir schema para suportar leitura discreta de forma explicita (ex.: `value_numeric` e `value_discrete`).
-- Adicionar autenticacao/autorizacao no endpoint de ingestao.
-- Incluir observabilidade com metricas, tracing e dashboards (Prometheus/Grafana).
-- Cobrir testes de integracao fim a fim com ambiente conteinerizado.
-- Definir contratos de payload versionados para evolucao segura do protocolo.
+Os testes funcionais e os testes unitários demonstram que o fluxo principal está correto. Já os resultados do k6 mostram que, no cenário aplicado, a API permaneceu estável, com 605 requisições, 100% de sucesso e latência média de 3.09 ms. Esses números não provam prontidão imediata para produção em larga escala, mas demonstram que a base técnica é sólida e que as decisões arquiteturais escolhidas foram adequadas ao problema.
 
-## 12. Conclusao
-
-A solucao atende ao objetivo da atividade ao implementar uma pipeline assincrona e desacoplada para telemetria em Go, com mensageria, persistencia relacional, containerizacao e validacao por testes unitarios e carga.
-
-Com base nos resultados medidos e no funcionamento ponta a ponta validado, o projeto demonstra boa base para cenarios reais de monitoramento industrial: alta taxa de sucesso, baixa latencia media e comportamento estavel sob concorrencia.
-
-As escolhas de desacoplamento com RabbitMQ, ACK manual no consumidor e persistencia relacional tornam a solucao tecnicamente consistente para evolucao em producao. As melhorias futuras propostas direcionam o proximo ciclo para maior robustez operacional, observabilidade e maturidade arquitetural.
-
-
-
-
+Em síntese, o projeto não apenas atende aos requisitos da atividade, mas também estabelece uma fundação consistente para evoluções futuras em confiabilidade, observabilidade, segurança e maturidade operacional.
