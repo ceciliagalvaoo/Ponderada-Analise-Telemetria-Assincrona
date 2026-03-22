@@ -1,5 +1,7 @@
 # Sistema de Processamento de Telemetria com Arquitetura Assincrona
 
+> **Link do vídeo da solução em funcionamento:** [clique aqui](https://drive.google.com/file/d/1tpfwycrPaJEr4vOBoWRJKTNbINeD3Jbh/view?usp=sharing)
+
 ## 1. Contexto e Objetivo
 
 Este projeto implementa um backend para ingestao de telemetria de dispositivos embarcados, com foco em escalabilidade, resiliencia e desacoplamento entre recepcao e persistencia.
