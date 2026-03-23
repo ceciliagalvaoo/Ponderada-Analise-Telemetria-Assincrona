@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -26,9 +27,21 @@ func (r *RabbitPublisher) Publish(body []byte) error {
 }
 
 func connectRabbitMQ() (*amqp.Connection, *amqp.Channel, amqp.Queue) {
-	conn, err := amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+	var conn *amqp.Connection
+	var err error
+
+	for attempt := 1; attempt <= 120; attempt++ {
+		conn, err = amqp.Dial("amqp://guest:guest@rabbitmq:5672/")
+		if err == nil {
+			break
+		}
+
+		log.Printf("tentativa %d/120: erro ao conectar no RabbitMQ: %v", attempt, err)
+		time.Sleep(2 * time.Second)
+	}
+
 	if err != nil {
-		log.Fatal("erro ao conectar no RabbitMQ: ", err)
+		log.Fatal("erro ao conectar no RabbitMQ apos tentativas: ", err)
 	}
 
 	ch, err := conn.Channel()

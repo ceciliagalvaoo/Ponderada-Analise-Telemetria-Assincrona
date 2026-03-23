@@ -19,8 +19,18 @@ func connectDB() *sql.DB {
 		log.Fatal("erro ao conectar no banco:", err)
 	}
 
-	if err := db.Ping(); err != nil {
-		log.Fatal("erro ao pingar banco:", err)
+	for attempt := 1; attempt <= 120; attempt++ {
+		err = db.Ping()
+		if err == nil {
+			return db
+		}
+
+		log.Printf("tentativa %d/120: erro ao pingar banco: %v", attempt, err)
+		time.Sleep(2 * time.Second)
+	}
+
+	if err != nil {
+		log.Fatal("erro ao pingar banco apos tentativas:", err)
 	}
 
 	return db

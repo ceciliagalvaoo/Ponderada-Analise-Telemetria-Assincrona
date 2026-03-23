@@ -1,0 +1,28 @@
+services:
+  back:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_CPUS:-0.5}'
+          memory: 256M
+
+  middleware:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_CPUS:-0.5}'
+          memory: 256M
+
+  rabbitmq:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_CPUS:-0.5}'
+          memory: 512M
+
+  db:
+    deploy:
+      resources:
+        limits:
+          cpus: '${BENCH_CPUS:-0.5}'
+          memory: 512M

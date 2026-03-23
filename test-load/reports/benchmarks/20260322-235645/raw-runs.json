@@ -1,0 +1,35 @@
+[
+    {
+        "cpu":  0.25,
+        "run":  1,
+        "req_s":  9.9154472137385117,
+        "p95_ms":  8.0535749999999915,
+        "fail_rate":  0,
+        "checks_ok":  150,
+        "checks_ko":  0,
+        "summary":  "test-load\\reports\\benchmarks\\20260322-235645\\cpu-0_25\\run-1-summary.json",
+        "log":  "test-load\\reports\\benchmarks\\20260322-235645\\cpu-0_25\\run-1.log"
+    },
+    {
+        "cpu":  0.5,
+        "run":  1,
+        "req_s":  9.8548895760608488,
+        "p95_ms":  64.681919999999991,
+        "fail_rate":  0,
+        "checks_ok":  150,
+        "checks_ko":  0,
+        "summary":  "test-load\\reports\\benchmarks\\20260322-235645\\cpu-0_5\\run-1-summary.json",
+        "log":  "test-load\\reports\\benchmarks\\20260322-235645\\cpu-0_5\\run-1.log"
+    },
+    {
+        "cpu":  1,
+        "run":  1,
+        "req_s":  9.95135248168155,
+        "p95_ms":  5.7060299999999957,
+        "fail_rate":  0,
+        "checks_ok":  150,
+        "checks_ko":  0,
+        "summary":  "test-load\\reports\\benchmarks\\20260322-235645\\cpu-1_0\\run-1-summary.json",
+        "log":  "test-load\\reports\\benchmarks\\20260322-235645\\cpu-1_0\\run-1.log"
+    }
+]

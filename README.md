@@ -205,7 +205,27 @@ Caso seja necessário registrar também a saída textual, o comando abaixo gera 
 k6 run --summary-export test-load/reports/summary.json test-load/telemetry.js > test-load/reports/run.log
 ```
 
-### 6.7 Encerrar o ambiente
+### 6.7 Executar benchmark reproduzivel (CPU/RAM limitados)
+
+Para manter o ambiente de desenvolvimento intacto, o benchmark usa o arquivo `docker-compose.bench.yml` como override de recursos e o script `test-load/run-benchmark.ps1` para automatizar as rodadas.
+
+Executar benchmark com os perfis padrao (0.25, 0.5 e 1.0 core), 3 rodadas por perfil:
+
+```bash
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+./test-load/run-benchmark.ps1
+```
+
+Executar benchmark com parametros customizados:
+
+```bash
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+./test-load/run-benchmark.ps1 -Runs 5 -Duration 60s -Vus 40
+```
+
+O script gera artefatos em `test-load/reports/benchmarks/<timestamp>/` e um ponteiro em `test-load/reports/benchmarks/latest.txt`.
+
+### 6.8 Encerrar o ambiente
 
 Para interromper os containers:
 
@@ -299,6 +319,65 @@ As evidências relacionadas ao teste de carga podem ser consultadas nos seguinte
 - `test-load/reports/run.log`
 - `test-load/reports/README.md`
 
+### 9.5 Benchmark com limite de CPU e extrapolacao para 1 core
+
+Foi adicionado um fluxo de benchmark para reproduzir resultados com limite de CPU e memoria em todos os containers (`back`, `middleware`, `rabbitmq`, `db`).
+
+Perfis executados:
+
+- `0.25` core
+- `0.5` core
+- `1.0` core
+
+Metodologia:
+
+- 3 rodadas por perfil
+- consolidacao automatica de `req/s`, `p95` e `fail_rate`
+- comparacao da estimativa por regra de 3 contra o valor medido real de 1 core
+
+Formula aplicada na extrapolacao:
+
+```text
+req_s_estimado_1core = req_s_medido / cpu_perfil
+erro_percentual = ((estimado - real_1core) / real_1core) * 100
+```
+
+Arquivos gerados por execucao:
+
+- `benchmark-summary.md`: tabela pronta para relatorio
+- `benchmark-summary.json`: consolidacao estruturada
+- `benchmark-summary.csv`: consolidacao tabular
+- `raw-runs.json`: resultados de cada rodada
+
+### 9.6 Resultado do benchmark final (execucao 20260323-000757)
+
+Fonte: `test-load/reports/benchmarks/20260323-000757/benchmark-summary.md`
+
+| CPU (core) | req/s medio | req/s mediana | p95 medio (ms) | fail_rate medio | estimado 1 core | 1 core real | erro extrapolacao (%) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 0.25 | 29.7870 | 29.7892 | 9.6314 | 0 | 119.1482 | 29.7845 | 300.03 |
+| 0.5 | 29.7872 | 29.8160 | 10.8853 | 0 | 59.5745 | 29.7845 | 100.02 |
+| 1.0 | 29.7845 | 29.7933 | 11.6490 | 0 | - | - | - |
+
+Leitura tecnica do resultado:
+
+- o endpoint ficou estavel em todas as rodadas (fail_rate medio 0 em todos os perfis)
+- a extrapolacao por regra de 3 superestimou bastante o 1 core real neste experimento
+- isso indica que o throughput ficou limitado por fatores do proprio cenario de carga (como `sleep(1)` por iteracao no script), e nao apenas por CPU
+
+### 9.7 Analise quantitativa do benchmark final
+
+Com base na tabela consolidada:
+
+- a diferenca entre o maior e o menor throughput medio foi de apenas 0.0027 req/s (29.7872 - 29.7845), indicando variacao muito pequena entre os perfis testados
+- a latencia p95 variou de 9.6314 ms a 11.6490 ms, oscilacao esperada em ambiente local conteinerizado, sem impacto em estabilidade funcional
+- a extrapolacao linear apresentou erro alto versus 1 core real: 300.03% (perfil 0.25) e 100.02% (perfil 0.5)
+
+Conclusao tecnica desta bateria:
+
+- o teste validou estabilidade e reproducibilidade operacional da stack sob limites de recurso
+- este cenario especifico nao foi adequado para inferir escalabilidade linear por CPU, pois o desenho da carga impôs gargalo adicional no throughput
+
 ## 10. Melhorias Futuras
 
 O projeto já atende bem ao objetivo da atividade, mas há um conjunto claro de melhorias que aumentariam sua maturidade técnica.
@@ -311,11 +390,14 @@ O projeto já atende bem ao objetivo da atividade, mas há um conjunto claro de 
 - separar leituras analógicas e discretas de forma mais explícita no schema
 - ampliar a cobertura com testes de integração fim a fim
 - versionar contratos de payload para evoluir o protocolo com mais segurança
+- executar nova bateria de benchmark removendo gargalo de think time no k6 (reduzir/remover `sleep(1)`) para avaliar escalabilidade por CPU com maior fidelidade
 
 ## 11. Conclusão
 
 O sistema desenvolvido atende ao objetivo proposto ao implementar uma pipeline assíncrona e desacoplada para processamento de telemetria. A combinação entre backend HTTP, RabbitMQ, middleware consumidor e PostgreSQL forma uma arquitetura coerente com os requisitos de escalabilidade básica, resiliência e organização de responsabilidades.
 
-Os testes funcionais e os testes unitários demonstram que o fluxo principal está correto. Já os resultados do k6 mostram que, no cenário aplicado, a API permaneceu estável, com 605 requisições, 100% de sucesso e latência média de 3.09 ms. Esses números não provam prontidão imediata para produção em larga escala, mas demonstram que a base técnica é sólida e que as decisões arquiteturais escolhidas foram adequadas ao problema.
+Os testes funcionais e os testes unitários demonstram que o fluxo principal está correto. Além disso, o benchmark reproduzível com limites de CPU/RAM em todos os containers confirmou estabilidade total em 3 rodadas por perfil (0.25, 0.5 e 1.0 core), mantendo `fail_rate` médio igual a 0 e throughput próximo de 29.78 req/s no cenário adotado.
+
+Na análise de extrapolação para 1 core, a regra de 3 superestimou o valor real medido de 1.0 core (erros de 300.03% para 0.25 core e 100.02% para 0.5 core). Esse resultado evidencia que, neste experimento, o throughput foi fortemente influenciado pelo próprio desenho do teste (como `sleep(1)` por iteração) e não apenas por CPU disponível. Ainda assim, a execução validou o objetivo metodológico da atividade: comparar perfis limitados, medir com rastreabilidade e confrontar a extrapolação com dado real.
 
 Em síntese, o projeto não apenas atende aos requisitos da atividade, mas também estabelece uma fundação consistente para evoluções futuras em confiabilidade, observabilidade, segurança e maturidade operacional.

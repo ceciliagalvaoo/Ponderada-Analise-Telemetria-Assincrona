@@ -1,0 +1,38 @@
+[
+    {
+        "cpu":  1,
+        "runs":  1,
+        "req_s_avg":  9.9266,
+        "req_s_median":  9.9266,
+        "p95_ms_avg":  6.9764,
+        "fail_rate_avg":  0,
+        "estimated_1core":  null,
+        "extrapolation_note":  "medicao_real",
+        "real_1core_req_s":  null,
+        "extrapolation_error_pct":  null
+    },
+    {
+        "cpu":  5,
+        "runs":  1,
+        "req_s_avg":  9.9246,
+        "req_s_median":  9.9246,
+        "p95_ms_avg":  13.0718,
+        "fail_rate_avg":  0,
+        "estimated_1core":  null,
+        "extrapolation_note":  "medicao_real",
+        "real_1core_req_s":  null,
+        "extrapolation_error_pct":  null
+    },
+    {
+        "cpu":  25,
+        "runs":  1,
+        "req_s_avg":  9.9299,
+        "req_s_median":  9.9299,
+        "p95_ms_avg":  7.1396,
+        "fail_rate_avg":  0,
+        "estimated_1core":  null,
+        "extrapolation_note":  "medicao_real",
+        "real_1core_req_s":  null,
+        "extrapolation_error_pct":  null
+    }
+]

@@ -1,0 +1,4 @@
+﻿"cpu","runs","req_s_avg","req_s_median","p95_ms_avg","fail_rate_avg","estimated_1core","extrapolation_note","real_1core_req_s","extrapolation_error_pct"
+"0,25","3","29,787","29,7892","9,6314","0","119,1482","regra_de_3","29,7845","300,03"
+"0,5","3","29,7872","29,816","10,8853","0","59,5745","regra_de_3","29,7845","100,02"
+"1","3","29,7845","29,7933","11,649","0",,"medicao_real",,

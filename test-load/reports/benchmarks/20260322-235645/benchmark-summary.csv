@@ -1,0 +1,4 @@
+﻿"cpu","runs","req_s_avg","req_s_median","p95_ms_avg","fail_rate_avg","estimated_1core","extrapolation_note","real_1core_req_s","extrapolation_error_pct"
+"1","1","9,9514","9,9514","5,706","0",,"medicao_real",,
+"5","1","9,8549","9,8549","64,6819","0",,"medicao_real",,
+"25","1","9,9154","9,9154","8,0536","0",,"medicao_real",,
